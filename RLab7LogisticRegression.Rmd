@@ -1,0 +1,289 @@
+---
+title: 'In Class Activity: Logistic Regression'
+author: "Jennifer Townsend"
+date: "June 2, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Lesson: Logistic Regression for classification
+
+Suppose you are trying to classify data into different categories.  For this course we'll examine the simplest of cases: when you are trying to identify one of two different groups.  The data set we'll work with is almost excruciatingly "nice" for logistic regression: please note that you will rarely get such "perfect" classification in the real world.
+
+
+We have 130 wine samples collected from two different regions (regions are coded as "0" or "1"): for each wine 13 different chemical attributes are measured and recorded.
+
+**The "long way" around:**
+
+We'd like to run a regression to find the relation between the predictor variables (chemical attributes) and the wine region. However, our predictions should ideally be "1" or "0" (although we'll settle for a value between 0 and 1 representing the probability that the sample comes from the "1" region).
+
+
+Unfortunately, linear regression alone isn't ideal for this.  To prove that point:
+
+```{r}
+Wine=read.csv("~/Wine.txt")
+
+#Build up a linear model of the Class (region) from the rest of the data:
+LinearWineModel=lm(Class~.,data=Wine) 
+
+#Put the fitted (prediction) values into a data frame with the wine class, just to make it easier to plot a side-by-side boxplot
+RegionBasedPredictions=data.frame(y=c(LinearWineModel$fitted.values[1:71],LinearWineModel$fitted.values[72:130]),x=Wine$Class)
+
+#Create a side-by-side boxplot that summarizes the predicted values of the different wines based on their chemical attributes
+boxplot(y~x,data=RegionBasedPredictions)
+```
+
+Okay... so maybe that didn't *really* prove the point: the output values are separated, even if they aren't perfectly "0" and "1" (or even between those two values). You could use just the linear regression to identify the wine essentially by saying anything with a predicted value of <0.5 is from the "0" region.
+
+
+This is really only because this data is **too** perfect.
+
+
+I'll try it on a different classification set: here I'm trying to classify whether individuals survived the sinking of the Titanic based on three predictors: the class (1st,2nd,3rd,Crew), sex (Male, Female), and age (Child, Adult).
+
+```{r}
+#First I'm going to switch the encoding of Surival into a binary 0(died) or 1(survived)
+BinaryTitanic=as.data.frame(Titanic)
+BinaryTitanic$Survived=(BinaryTitanic$Survived=="Yes")
+
+#Next I'll build up the linear model:
+LinearSurvivalModel=lm(Survived~.,data=BinaryTitanic)
+
+
+#Here I'm building up a data set so I can create a boxplot of the output "fit" compared to actual survival:
+
+PredictedVActualSurvival=data.frame(Predicted=LinearSurvivalModel$fitted.values,Actual=BinaryTitanic$Survived)
+boxplot(Predicted~Actual,data=PredictedVActualSurvival,xlab="Actually Survived",ylab="Predicted Survival via Linear Regression")
+```
+Well... that looks pretty useless. The output of the linear regression seems to tell me nothing about the actual survival of the individual.
+
+
+
+So what's the *proper* way? 
+
+
+##The proper way:
+
+Instead of fitting $\text{Class}=\beta_0+\beta_1\cdot \text{Alcohol}+\beta_2\cdot\text{MalicAcid}+\ldots$ which forces a linear fit to data that looks more like:
+
+```{r}
+plot(1:nrow(Wine),Wine$Class,xlab="",ylab="Wine Region")
+```
+
+
+Instead we're going to try to fit the following model $$\text{Class}=\frac{1}{1+e^{-L}}$$
+
+where $L$ is a linear combination of predictors:$L=\beta_0+\beta_1\cdot\text{Alcohol}+\beta_2\cdot\text{MalicAcid}+\ldots}}$
+
+So based on the linear model value, this function looks like:
+
+```{r,echo=FALSE}
+X=seq(-10,10,0.1)
+plot(X,1/(1+exp(-X)),xlab="Linear model value",ylab="Response (output) value",type="l")
+```
+
+
+
+We use this "logistic" function $f(x)=\frac{1}{1+e^{-x}}$ for several reasons:
+
+**Heuristically** it generally works: the response values will always fall between 0 and 1 and can be interpretted as "the probability of the object being in class 1". Altering $L$ allows you to control the transition between 0 and 1 based on the impact of the predictors.
+
+
+**More formally**, we are trying to model $p$ as the probability of categorizing a new row as "1". Since $p$ definitely isn't linear in the predictors for most any data set, it can help to look at a transformation of $p$ instead: we will consider the "odds ratio"
+$$\frac{p}{1-p}$$
+
+For example, if based on a model of the Titanic Survival, there's a 30\% chance you'll categorize an individual as surviving, the odds ratio of $\frac{.3}{.7}$ means the odds for:against survival are 3 to 7.
+
+Now, it turns out that the logarithm of the odds ratio (log-odds) is fairly close to linear.  To see this, let's plot $f(x)=\ln(\frac{1}{1-x})$ for $x\in [0,1]$:
+```{r,echo=FALSE}
+X=seq(0,1,0.05)
+plot(X,log(X/(1-X)),type="l",xlab="Probability",ylab="log-odds")
+```
+
+So, although it's not \emph{perfect} you can model the log-odds using a linear regression.  Indeed one definition of a logistic relationship is "one that is linear in the log-odds".
+
+$$\ln(\frac{p}{1-p})\sim \underbrace{\beta_0+\beta_1\cdot x_1+\beta_2\cdot x_2}_L$$
+
+A cool (and important) side note about this: by taking the derivative of this model with respect to $x_i$, you can find that $\beta_i$ actually gives $\Delta$ Odds (in other words, if $\beta_1=2$ that means that the odds ratio goes up by 2 (for example, up from 3:7 to 5:7) every time $x_1$ increases by 1.
+
+
+Now, to get back to where we started, just solve the equation above for $p$: take the exponential of both sides, use log properties, then rearrange:
+
+$$e^{\ln(\frac{p}{1-p})}\sim e^{L}$$
+$$\frac{p}{1-p}\sim e^{L}$$
+$$p\sim e^L(1-p)$$
+$$p\sim e^{L}-p\cdot e^L$$
+$$p+p\cdot e^L\sim e^L$$
+$$p(1+e^L)\sim e^L$$
+$$p\sim \frac{e^L}{1+e^L}=\frac{1}{1+e^{-L}}$$
+
+
+
+Now, for the "long" way around (doing logistic regression using ONLY linear regression): Because 1 and 0 aren't "friendly" for the fraction $\frac{p}{1-p}$, I'm going to replace them with 0.99 and 0.01.
+
+```{r}
+P=0.98*Wine$Class+0.01
+```
+And now I can build the log-odds:
+
+```{r}
+LogOdds=as.data.frame(log(P/(1-P)))
+colnames(LogOdds)=c("logodds")
+Wine2=cbind(LogOdds,Wine)
+```
+
+Now that I've generated the log-odds, I will attempt to fit a linear regression to those, and then transform it in the end.
+
+```{r}
+#Fit the linear model "L"
+LogOddsModel=lm(logodds~.,data=Wine2[,1:14])
+
+#Transform the log odds into a probability by 1/(1+e^{-L})
+TransformedP=1/(1+exp(-LogOddsModel$fitted.values))
+
+#This will compute the accuracy/misclassification by assigning "1" to any instance with probability>0.5, and then finding how often this assignment doesn't match the original class (region):
+fitted=ifelse(LogOddsModel$fitted.values > 0.5,1,0)
+misClasificError <- mean(fitted != Wine$Class)
+print(paste('Percent accuracy:',100*round(1-misClasificError,4)))
+```
+
+## The "shortcut" way using built-in functions:
+
+R has a built in ability to run logistic regressions as part of a "generalized linear regression" fitting function.  This function takes the standard data (like with linear regression) but it also requires a "family" which we'll put as **binomial** since we are working with binary data, searching for the unknow "p" value.  We will also need to specify a "link" function which is the transformation used on the data.  This will be the **logit** function $\frac{1}{1+e^{-L}}$.
+
+```{r}
+FastModel=glm(Class~.,Wine,family=binomial(link='logit'))
+fitted=ifelse(FastModel$fitted.values>0.5,1,0)
+misClasificError=mean(fitted!=Wine$Class)
+print(paste('Percent accuracy:',100*round(1-misClasificError,4)))
+```
+
+
+
+To do the same thing with the Titanic Survival (which uses categorical predictors and messier data), we'll first need to convert the "Freq" which gives the count of instances into actual repeated instances:
+
+```{r}
+# Convert from data frame of counts to data frame of cases.
+# `countcol` is the name of the column containing the counts
+countsToCases <- function(x, countcol = "Freq") {
+    # Get the row indices to pull from x
+    idx <- rep.int(seq_len(nrow(x)), x[[countcol]])
+
+    # Drop count column
+    x[[countcol]] <- NULL
+
+    # Get the rows from x
+    x[idx, ]
+}
+
+Titanic2=countsToCases(BinaryTitanic,countcol="Freq")
+P=ifelse(Titanic2$Survived,0.99,0.1)
+```
+And now I can build the log-odds:
+
+```{r}
+LogOdds=as.data.frame(log(P/(1-P)))
+colnames(LogOdds)=c("logodds")
+TitanicLogOdds=cbind(LogOdds,Titanic2)
+```
+
+Now that I've generated the log-odds, I will attempt to fit a linear regression to those, and then transform it in the end.
+
+```{r}
+LogOddsModel=lm(logodds~.,data=TitanicLogOdds[,1:4])
+summary(LogOddsModel)
+TransformedP=1/(1+exp(-LogOddsModel$fitted.values))
+Survivalfitted1=ifelse(TransformedP > 0.5,1,0)
+misClasificError <- mean(Survivalfitted1 != TitanicLogOdds$Survived)
+print(paste('Accuracy of (Transformed) Log Odds Model (as a percentage) is: ',round(100*(1-misClasificError),4)))
+```
+
+
+```{r}
+LogitModel=glm(Survived~.,data=TitanicLogOdds[,2:5],family=binomial(link='logit'))
+Survivalfitted2=ifelse(LogitModel$fitted.values > 0.5,1,0)
+misClasificError <- mean(Survivalfitted2 != TitanicLogOdds$Survived)
+print(paste('Accuracy of full (fast) logistic regression (as a percentage) is:',round(100*(1-misClasificError),4)))
+
+print(paste('Percentage of different prediction results between linearly fitting the log-odds and running the built-in R logistic regresion is:', round(100*mean(Survivalfitted1!=Survivalfitted2),4)))
+
+```
+
+
+The above code indicates that there is no predictive difference between the built-in functionality of R and fitting a linear regression to the log-odds.
+
+
+
+
+
+
+
+
+## Task: Applying a logistic regression
+
+**Questions about the Titanic model:**
+
+Output and use the summary of the LogitModel to help answer the following questions. Justify your reasoning:
+
+-Who was more likely to survive: crew members or 3rd class passengers?
+
+ANSWER: Crew members are more likely to survive like 3rd class passangers.
+
+-Who was more likely to survive: a child or an adult?
+
+ANSWER: More likely to survive are child at first class but at 3rd class more likely to survive are adults. 
+
+<br>
+
+
+
+</br>
+
+
+
+**Fitting your own logistic model:**
+
+Import the DiabetesData dataset (available on Canvas) into R.  The original data and it's description is available at https://archive.ics.uci.edu/ml/machine-learning-databases/pima-indians-diabetes/pima-indians-diabetes.names 
+
+Get a summary of the data.  Then apply a logistic regression on all but the last 50 rows of the data in order to predict whether or not the individual has diabetes.
+
+
+
+```{r}
+DiabetesData <- read.csv("C:/Users/Marius/Downloads/DiabetesData.txt")
+DiabetesModel=glm(Diabetes~., data=DiabetesData , family= binomial(link= "logit"))
+DiabetesModel
+```
+
+Using the summary of your model, which variables significantly increase the odds of a person having diabetes?
+
+What percentage of data you trained on is accurately classified?
+
+```{r}
+DiabetesFitted=ifelse(DiabetesModel$fitted.values > 0.5,1,0)
+misClasificError <- mean(DiabetesFitted != DiabetesData$Diabetes)
+print(paste('Accuracy of full (fast) logistic regression (as a percentage) is:',round(100*(1-misClasificError),4)))
+```
+ANSWER: The percentage of data trained accuretly is 78.2552 %.
+
+
+What is the false positive rate? What is the false negative rate?
+
+```{r}
+DiabetesFitted=ifelse(DiabetesModel$fitted.values > 0.5,1,0)
+misClasificError <- mean(DiabetesFitted > DiabetesData$Diabetes)
+print(paste('False positive rate (as a percentage) is:',round(100*(misClasificError),4)))
+```
+
+```{r}
+DiabetesFitted=ifelse(DiabetesModel$fitted.values > 0.5,1,0)
+misClasificError <- mean(DiabetesFitted < DiabetesData$Diabetes)
+print(paste('False negative rate (as a percentage) is:',round(100*(misClasificError),4)))
+```
+Answer the three above questions about accuracy for the last 50 rows (which you've reserved as a testing set).
+
+
